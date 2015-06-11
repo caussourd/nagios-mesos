@@ -68,6 +68,22 @@ class MesosMaster(nagiosplugin.Resource):
       yield nagiosplugin.Metric('framework ' + framework_regex, unregistered_time, context='framework')
 
 
+    # checking memory and cpu availability
+    response = requests.get(master_uri + '/master/stats.json', timeout=5)
+    log.info('Response from %s is %s', response.request.url, response)
+    stats = response.json()
+
+    total_mem = stats['mem_total']
+    total_cpu = stats['cpus_total']
+    used_mem = stats['mem_used']
+    used_cpu = stats['cpus_used']
+
+    available_mem = total_mem - used_mem
+    available_cpu = total_cpu - used_cpu
+
+    yield nagiosplugin.Metric('memory available', available_mem)
+    yield nagiosplugin.Metric('cpus available', available_cpu)
+
 @nagiosplugin.guarded
 def main():
   argp = argparse.ArgumentParser()
@@ -77,6 +93,10 @@ def main():
                     help='The Mesos master HTTP port - defaults to 5050')
   argp.add_argument('-n', '--slaves', default=1,
                     help='The minimum number of slaves the cluster must be running')
+  argp.add_argument('-m', '--mem', default=2048,
+                    help='The minimum memory available (MB)')
+  argp.add_argument('-c', '--cpus', default=2,
+                    help='The minimum number of cpus available')
   argp.add_argument('-F', '--framework', default=[], action='append',
                     help='Check that a framework is registered matching the given regex, may be specified multiple times')
   argp.add_argument('-v', '--verbose', action='count', default=0,
@@ -86,6 +106,8 @@ def main():
 
   unhealthy_range = nagiosplugin.Range('%d:%d' % (HEALTHY - 1, HEALTHY + 1))
   slave_range = nagiosplugin.Range('%s:' % (args.slaves,))
+  mem_range = nagiosplugin.Range('%s:' % (args.mem,))
+  cpus_range = nagiosplugin.Range('%s:' % (args.cpus,)) 
 
   check = nagiosplugin.Check(
               MesosMaster('http://%s:%d' % (args.host, args.port), args.framework),
@@ -93,7 +115,10 @@ def main():
               nagiosplugin.ScalarContext('master health', unhealthy_range, unhealthy_range),
               nagiosplugin.ScalarContext('active slaves', slave_range, slave_range),
               nagiosplugin.ScalarContext('active leader', '1:1', '1:1'),
-              nagiosplugin.ScalarContext('framework', '0:0', '0:0'))
+              nagiosplugin.ScalarContext('framework', '0:0', '0:0'),
+              nagiosplugin.ScalarContext('memory available', mem_range, mem_range),
+              nagiosplugin.ScalarContext('cpus available', cpus_range, cpus_range))
+
   check.main(verbose=args.verbose)
 
 if __name__ == '__main__':
