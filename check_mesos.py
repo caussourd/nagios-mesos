@@ -4,6 +4,7 @@ import argparse
 import logging
 import re
 import requests
+from urlparse import urlparse
 
 INFINITY = float('inf')
 HEALTHY = 1
@@ -16,16 +17,24 @@ class MesosMaster(nagiosplugin.Resource):
     self.baseuri = baseuri
     self.frameworks = frameworks
 
+  def build_redirection(self, master_uri, location):
+    original = urlparse(master_uri)
+    redirect = urlparse(location)
+    if redirect.scheme == '':
+      return original.scheme + ':' + location
+    else: # version <0.23
+      return location
+
   def probe(self):
     master_uri=self.baseuri
     log.debug('Looking at %s for redirect', master_uri)
 
     try:
-      response = requests.head(master_uri + '/master/redirect', timeout=5)
+      response = requests.head(master_uri + '/master/redirect', timeout=5, allow_redirects=False)
       if response.status_code != 307:
         yield nagiosplugin.Metric('leader redirect', UNHEALTHY)
-      master_uri = response.headers['Location']
       log.info('Redirect response is %s', response)
+      master_uri = self.build_redirection(master_uri, response.headers['Location'])
       # yield the leader redirect later, the summary takes the first check which we want to be 'master health'
     except requests.exceptions.RequestException, e:
       log.error('leader redirect %s', e)
@@ -43,6 +52,8 @@ class MesosMaster(nagiosplugin.Resource):
 
     response = requests.get(master_uri + '/master/state.json', timeout=5)
     log.info('Response from %s is %s', response.request.url, response)
+    if response.encoding is None:
+      response.encoding = "UTF8"
     state = response.json()
 
     has_leader = len(state.get('leader', '')) > 0
@@ -110,7 +121,7 @@ def main():
   cpus_range = nagiosplugin.Range('%s:' % (args.cpus,)) 
 
   check = nagiosplugin.Check(
-              MesosMaster('http://%s:%d' % (args.host, args.port), args.framework),
+              MesosMaster('http://%s:%d' % (args.host, int(args.port)), args.framework),
               nagiosplugin.ScalarContext('leader redirect', unhealthy_range, unhealthy_range),
               nagiosplugin.ScalarContext('master health', unhealthy_range, unhealthy_range),
               nagiosplugin.ScalarContext('active slaves', slave_range, slave_range),
