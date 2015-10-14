@@ -80,14 +80,14 @@ class MesosMaster(nagiosplugin.Resource):
 
 
     # checking memory and cpu availability
-    response = requests.get(master_uri + '/master/stats.json', timeout=5)
+    response = requests.get(master_uri + '/metrics/snapshot', timeout=5)
     log.info('Response from %s is %s', response.request.url, response)
     stats = response.json()
 
-    total_mem = stats['mem_total']
-    total_cpu = stats['cpus_total']
-    used_mem = stats['mem_used']
-    used_cpu = stats['cpus_used']
+    total_mem = stats['master/mem_total']
+    total_cpu = stats['master/cpus_total']
+    used_mem = stats['master/mem_used']
+    used_cpu = stats['master/cpus_used']
 
     available_mem = total_mem - used_mem
     available_cpu = total_cpu - used_cpu
